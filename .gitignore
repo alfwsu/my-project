@@ -1,218 +1,644 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 
-# C extensions
-*.so
+import json
+import os
+import tkinter as tk
+from tkinter import ttk, messagebox
+from typing import List, Dict
+import unittest
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# ===================== МОДЕЛЬ ФИЛЬМА =====================
 
-# PyInstaller
-#   Usually these files are written by a python script from a template
-#   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+class Movie:
+    """Класс, представляющий фильм с валидацией"""
+    
+    def __init__(self, title: str, genre: str, year: int, rating: float):
+        if not self.validate_title(title):
+            raise ValueError("Название не может быть пустым и должно быть короче 100 символов")
+        if not self.validate_genre(genre):
+            raise ValueError("Жанр не может быть пустым и должен быть короче 50 символов")
+        if not self.validate_year(year):
+            raise ValueError("Год должен быть от 1888 до 2026")
+        if not self.validate_rating(rating):
+            raise ValueError("Рейтинг должен быть числом от 0 до 10")
+        
+        self.title = title.strip()
+        self.genre = genre.strip()
+        self.year = year
+        self.rating = rating
+    
+    @staticmethod
+    def validate_title(title: str) -> bool:
+        return bool(title) and len(title) <= 100
+    
+    @staticmethod
+    def validate_genre(genre: str) -> bool:
+        return bool(genre) and len(genre) <= 50
+    
+    @staticmethod
+    def validate_year(year: int) -> bool:
+        return 1888 <= year <= 2026
+    
+    @staticmethod
+    def validate_rating(rating: float) -> bool:
+        return 0 <= rating <= 10
+    
+    def to_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "genre": self.genre,
+            "year": self.year,
+            "rating": self.rating
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            title=data["title"],
+            genre=data["genre"],
+            year=data["year"],
+            rating=data["rating"]
+        )
+    
+    def __str__(self) -> str:
+        return f"{self.title} ({self.year}) - {self.genre} - Рейтинг: {self.rating}"
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
+# ===================== ХРАНИЛИЩЕ JSON =====================
 
-# Translations
-*.mo
-*.pot
+class Storage:
+    """Класс для работы с JSON файлом"""
+    
+    def __init__(self, filename: str = "movies.json"):
+        self.filename = filename
+        self._ensure_file_exists()
+    
+    def _ensure_file_exists(self):
+        if not os.path.exists(self.filename):
+            with open(self.filename, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+    
+    def save_movies(self, movies: List[Movie]):
+        with open(self.filename, "w", encoding="utf-8") as f:
+            json.dump([movie.to_dict() for movie in movies], f, ensure_ascii=False, indent=2)
+    
+    def load_movies(self) -> List[Movie]:
+        with open(self.filename, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return [Movie.from_dict(item) for item in data]
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
 
-# Flask stuff:
-instance/
-.webassets-cache
+# ===================== ГРАФИЧЕСКИЙ ИНТЕРФЕЙС =====================
 
-# Scrapy stuff:
-.scrapy
+class MovieLibraryApp:
+    """Главное приложение с графическим интерфейсом"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Movie Library - Личная кинотека")
+        self.root.geometry("1000x650")
+        self.root.resizable(True, True)
+        
+        # Загрузка данных
+        self.storage = Storage()
+        self.movies = self.storage.load_movies()
+        self.filtered_movies = self.movies.copy()
+        
+        # Настройка интерфейса
+        self._setup_ui()
+        self._refresh_table()
+        self._update_stats()
+    
+    def _setup_ui(self):
+        # Основной контейнер
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # === Рамка добавления фильма ===
+        add_frame = ttk.LabelFrame(main_frame, text="➕ Добавить новый фильм", padding="10")
+        add_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        # Поля ввода
+        ttk.Label(add_frame, text="Название:*").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        self.title_entry = ttk.Entry(add_frame, width=30)
+        self.title_entry.grid(row=0, column=1, padx=(0, 20))
+        
+        ttk.Label(add_frame, text="Жанр:*").grid(row=0, column=2, sticky=tk.W, padx=(0, 10))
+        self.genre_combo = ttk.Combobox(add_frame, values=[
+            "Боевик", "Комедия", "Драма", "Ужасы", "Фантастика", 
+            "Триллер", "Мелодрама", "Детектив", "Приключения", "Аниме", "Вестерн", "Мюзикл"
+        ], width=20)
+        self.genre_combo.grid(row=0, column=3, padx=(0, 20))
+        
+        ttk.Label(add_frame, text="Год:*").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(5, 0))
+        self.year_entry = ttk.Entry(add_frame, width=30)
+        self.year_entry.grid(row=1, column=1, padx=(0, 20), pady=(5, 0))
+        
+        ttk.Label(add_frame, text="Рейтинг (0-10):*").grid(row=1, column=2, sticky=tk.W, padx=(0, 10), pady=(5, 0))
+        self.rating_entry = ttk.Entry(add_frame, width=20)
+        self.rating_entry.grid(row=1, column=3, padx=(0, 20), pady=(5, 0))
+        
+        # Кнопка добавления
+        ttk.Button(add_frame, text="✅ Добавить фильм", command=self._add_movie).grid(row=1, column=4, pady=(5, 0))
+        
+        # === Рамка фильтрации ===
+        filter_frame = ttk.LabelFrame(main_frame, text="🔍 Фильтрация", padding="10")
+        filter_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Label(filter_frame, text="По жанру:").grid(row=0, column=0, padx=(0, 10))
+        self.filter_genre = ttk.Combobox(filter_frame, values=["Все"] + [
+            "Боевик", "Комедия", "Драма", "Ужасы", "Фантастика", 
+            "Триллер", "Мелодрама", "Детектив", "Приключения", "Аниме", "Вестерн", "Мюзикл"
+        ], width=20, state="readonly")
+        self.filter_genre.set("Все")
+        self.filter_genre.grid(row=0, column=1, padx=(0, 20))
+        
+        ttk.Label(filter_frame, text="По году:").grid(row=0, column=2, padx=(0, 10))
+        ttk.Label(filter_frame, text="от").grid(row=0, column=3, padx=(0, 5))
+        self.filter_year_from = ttk.Entry(filter_frame, width=8)
+        self.filter_year_from.grid(row=0, column=4, padx=(0, 5))
+        ttk.Label(filter_frame, text="до").grid(row=0, column=5, padx=(0, 5))
+        self.filter_year_to = ttk.Entry(filter_frame, width=8)
+        self.filter_year_to.grid(row=0, column=6, padx=(0, 20))
+        
+        ttk.Button(filter_frame, text="🔍 Применить", command=self._apply_filter).grid(row=0, column=7, padx=(0, 5))
+        ttk.Button(filter_frame, text="🔄 Сбросить", command=self._reset_filter).grid(row=0, column=8)
+        
+        # Статистика
+        self.stats_label = ttk.Label(filter_frame, text="", foreground="blue")
+        self.stats_label.grid(row=1, column=0, columnspan=9, pady=(10, 0))
+        
+        # === Таблица фильмов ===
+        table_frame = ttk.LabelFrame(main_frame, text="📋 Список фильмов", padding="10")
+        table_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Создание таблицы
+        columns = ("title", "genre", "year", "rating")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+        
+        # Настройка колонок
+        self.tree.heading("title", text="Название фильма")
+        self.tree.heading("genre", text="Жанр")
+        self.tree.heading("year", text="Год")
+        self.tree.heading("rating", text="Рейтинг")
+        
+        self.tree.column("title", width=350)
+        self.tree.column("genre", width=150)
+        self.tree.column("year", width=80, anchor="center")
+        self.tree.column("rating", width=100, anchor="center")
+        
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Контекстное меню
+        self._create_context_menu()
+        
+        # === Кнопки управления ===
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, columnspan=2, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="❌ Удалить выбранный", command=self._delete_movie).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="📊 Статистика", command=self._show_statistics).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="💾 Сохранить", command=self._manual_save).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="ℹ️ О программе", command=self._show_about).pack(side="left", padx=5)
+        
+        # Настройка веса для расширения
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+    
+    def _create_context_menu(self):
+        """Создаёт контекстное меню для таблицы"""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="📖 Подробнее", command=self._show_movie_details)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="🗑️ Удалить", command=self._delete_movie)
+        
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Double-1>", self._show_movie_details)
+    
+    def _show_context_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        if item:
+            self.tree.selection_set(item)
+            self.context_menu.post(event.x_root, event.y_root)
+    
+    def _add_movie(self):
+        """Добавляет новый фильм с валидацией"""
+        try:
+            title = self.title_entry.get()
+            genre = self.genre_combo.get()
+            year_str = self.year_entry.get()
+            rating_str = self.rating_entry.get()
+            
+            # Проверка на пустые поля
+            if not all([title, genre, year_str, rating_str]):
+                messagebox.showwarning("Не все поля заполнены", 
+                                      "Пожалуйста, заполните все поля (отмеченные *)")
+                return
+            
+            # Валидация года
+            try:
+                year = int(year_str)
+            except ValueError:
+                messagebox.showerror("Ошибка ввода года", 
+                                   "Год должен быть целым числом (например: 1994)")
+                return
+            
+            # Валидация рейтинга
+            try:
+                rating = float(rating_str)
+            except ValueError:
+                messagebox.showerror("Ошибка ввода рейтинга", 
+                                   "Рейтинг должен быть числом (например: 8.5)")
+                return
+            
+            # Создание фильма
+            movie = Movie(title, genre, year, rating)
+            self.movies.append(movie)
+            self.storage.save_movies(self.movies)
+            
+            # Обновление интерфейса
+            self._apply_filter()
+            self._clear_inputs()
+            
+            # Показываем успешное добавление с оценкой
+            rating_emoji = "⭐" if rating >= 8 else "👍" if rating >= 6 else "😐" if rating >= 4 else "👎"
+            messagebox.showinfo("Фильм добавлен!", 
+                               f"{rating_emoji} Фильм '{title}' успешно добавлен в библиотеку!")
+            
+        except ValueError as e:
+            messagebox.showerror("Ошибка валидации", str(e))
+    
+    def _clear_inputs(self):
+        """Очищает поля ввода"""
+        self.title_entry.delete(0, tk.END)
+        self.genre_combo.set("")
+        self.year_entry.delete(0, tk.END)
+        self.rating_entry.delete(0, tk.END)
+    
+    def _apply_filter(self):
+        """Применяет фильтрацию"""
+        genre_filter = self.filter_genre.get()
+        year_from_str = self.filter_year_from.get()
+        year_to_str = self.filter_year_to.get()
+        
+        self.filtered_movies = self.movies.copy()
+        
+        # Фильтр по жанру
+        if genre_filter != "Все":
+            self.filtered_movies = [m for m in self.filtered_movies if m.genre == genre_filter]
+        
+        # Фильтр по году
+        if year_from_str:
+            try:
+                year_from = int(year_from_str)
+                self.filtered_movies = [m for m in self.filtered_movies if m.year >= year_from]
+            except ValueError:
+                if year_from_str:
+                    messagebox.showwarning("Ошибка", "Год 'от' должен быть числом")
+        
+        if year_to_str:
+            try:
+                year_to = int(year_to_str)
+                self.filtered_movies = [m for m in self.filtered_movies if m.year <= year_to]
+            except ValueError:
+                if year_to_str:
+                    messagebox.showwarning("Ошибка", "Год 'до' должен быть числом")
+        
+        self._refresh_table()
+        self._update_stats()
+    
+    def _reset_filter(self):
+        """Сбрасывает фильтры"""
+        self.filter_genre.set("Все")
+        self.filter_year_from.delete(0, tk.END)
+        self.filter_year_to.delete(0, tk.END)
+        self.filtered_movies = self.movies.copy()
+        self._refresh_table()
+        self._update_stats()
+    
+    def _refresh_table(self):
+        """Обновляет таблицу"""
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        
+        for movie in self.filtered_movies:
+            # Оформление рейтинга
+            if movie.rating >= 8:
+                rating_display = f"⭐ {movie.rating:.1f}"
+            elif movie.rating >= 6:
+                rating_display = f"👍 {movie.rating:.1f}"
+            elif movie.rating >= 4:
+                rating_display = f"😐 {movie.rating:.1f}"
+            else:
+                rating_display = f"👎 {movie.rating:.1f}"
+            
+            self.tree.insert("", tk.END, values=(
+                movie.title,
+                movie.genre,
+                movie.year,
+                rating_display
+            ))
+    
+    def _update_stats(self):
+        """Обновляет статистику"""
+        total = len(self.movies)
+        filtered = len(self.filtered_movies)
+        
+        if total == 0:
+            self.stats_label.config(text="📭 Библиотека пуста. Добавьте первый фильм!")
+        elif total == filtered:
+            self.stats_label.config(text=f"📚 Всего фильмов в библиотеке: {total}")
+        else:
+            self.stats_label.config(text=f"🎯 Показано: {filtered} из {total} фильмов")
+    
+    def _delete_movie(self):
+        """Удаляет выбранный фильм"""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Не выбран фильм", 
+                                 "Пожалуйста, выберите фильм для удаления")
+            return
+        
+        item = selected[0]
+        index = self.tree.index(item)
+        movie = self.filtered_movies[index]
+        
+        if messagebox.askyesno("Подтверждение удаления", 
+                              f"Удалить фильм\n\n'{movie.title}' ({movie.year})\n\nиз библиотеки?"):
+            self.movies.remove(movie)
+            self.storage.save_movies(self.movies)
+            self._apply_filter()
+            messagebox.showinfo("Фильм удалён", f"'{movie.title}' удалён из библиотеки")
+    
+    def _show_movie_details(self, event=None):
+        """Показывает подробности о фильме"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        item = selected[0]
+        index = self.tree.index(item)
+        movie = self.filtered_movies[index]
+        
+        # Оценка
+        if movie.rating >= 9:
+            comment = "🎉 Шедевр! Обязателен к просмотру!"
+        elif movie.rating >= 7:
+            comment = "👍 Отличный фильм, рекомендую!"
+        elif movie.rating >= 5:
+            comment = "😐 Средненько, на один раз"
+        elif movie.rating >= 3:
+            comment = "🤔 На любителя"
+        else:
+            comment = "💂 Лучше пропустить"
+        
+        details = f"""
+┌─────────────────────────────────────────┐
+│         ИНФОРМАЦИЯ О ФИЛЬМЕ              │
+└─────────────────────────────────────────┘
 
-# Sphinx documentation
-docs/_build/
+📽️ НАЗВАНИЕ: {movie.title}
+🎭 ЖАНР: {movie.genre}
+📅 ГОД ВЫПУСКА: {movie.year}
+⭐ РЕЙТИНГ: {movie.rating}/10
 
-# PyBuilder
-.pybuilder/
-target/
+💬 ВАША ОЦЕНКА: {comment}
+"""
+        
+        messagebox.showinfo("Информация о фильме", details)
+    
+    def _show_statistics(self):
+        """Показывает статистику библиотеки"""
+        if not self.movies:
+            messagebox.showinfo("Статистика", "В библиотеке пока нет фильмов\n\nДобавьте первый фильм!")
+            return
+        
+        total = len(self.movies)
+        avg_rating = sum(m.rating for m in self.movies) / total
+        oldest = min(self.movies, key=lambda m: m.year)
+        newest = max(self.movies, key=lambda m: m.year)
+        best = max(self.movies, key=lambda m: m.rating)
+        worst = min(self.movies, key=lambda m: m.rating)
+        
+        # Статистика по жанрам
+        genres = {}
+        for movie in self.movies:
+            genres[movie.genre] = genres.get(movie.genre, 0) + 1
+        top_genre = max(genres.items(), key=lambda x: x[1])
+        
+        # Оценка средней оценки
+        if avg_rating >= 8:
+            avg_comment = "Отличная коллекция!"
+        elif avg_rating >= 6:
+            avg_comment = "Хорошая подборка"
+        elif avg_rating >= 4:
+            avg_comment = "Бывает и лучше"
+        else:
+            avg_comment = "Нужно больше хороших фильмов"
+        
+        stats = f"""
+┌─────────────────────────────────────────┐
+│         📊 СТАТИСТИКА БИБЛИОТЕКИ         │
+└─────────────────────────────────────────┘
 
-# Jupyter Notebook
-.ipynb_checkpoints
+🎬 Всего фильмов: {total}
+⭐ Средний рейтинг: {avg_rating:.1f}/10
+💬 {avg_comment}
 
-# IPython
-profile_default/
-ipython_config.py
+📅 Самый старый: {oldest.title} ({oldest.year})
+🆕 Самый новый: {newest.title} ({newest.year})
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+🏆 Лучший фильм: {best.title} — {best.rating}/10
+💩 Худший фильм: {worst.title} — {worst.rating}/10
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-# Pipfile.lock
+🎭 Любимый жанр: {top_genre[0]} ({top_genre[1]} фильмов)
+"""
+        
+        messagebox.showinfo("Статистика библиотеки", stats)
+    
+    def _manual_save(self):
+        """Ручное сохранение"""
+        try:
+            self.storage.save_movies(self.movies)
+            messagebox.showinfo("Сохранение", 
+                               f"✅ Данные успешно сохранены в файл movies.json\n\nВсего сохранено: {len(self.movies)} фильмов")
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить данные:\n{str(e)}")
+    
+    def _show_about(self):
+        """О программе"""
+        about_text = """
+┌─────────────────────────────────────────┐
+│       🎬 MOVIE LIBRARY v1.0              │
+│          Личная кинотека                  │
+└─────────────────────────────────────────┘
 
-# UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
+📝 Описание:
+Приложение для ведения личной коллекции фильмов
 
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-# poetry.lock
-# poetry.toml
+✨ Возможности:
+• Добавление и удаление фильмов
+• Фильтрация по жанру и году
+• Просмотр статистики
+• Автосохранение в JSON
 
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-# pdm.lock
-# pdm.toml
-.pdm-python
-.pdm-build/
+👨‍💻 Автор: Александр Петров
+📅 Год создания: 2026
+🐍 Python + tkinter
 
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-# pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi
+💡 Совет:
+Дважды кликните по фильму для подробной информации
+        """
+        messagebox.showinfo("О программе", about_text)
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
 
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
+# ===================== ТЕСТЫ =====================
 
-# Redis
-*.rdb
-*.aof
-*.pid
+class TestMovieLibrary(unittest.TestCase):
+    """Модульные тесты для Movie Library"""
+    
+    def test_valid_movie_creation(self):
+        """Позитивный тест: создание корректного фильма"""
+        movie = Movie("Начало", "Фантастика", 2010, 8.8)
+        self.assertEqual(movie.title, "Начало")
+        self.assertEqual(movie.rating, 8.8)
+    
+    def test_invalid_title_empty(self):
+        """Негативный тест: пустое название"""
+        with self.assertRaises(ValueError):
+            Movie("", "Драма", 2020, 7.5)
+    
+    def test_invalid_title_too_long(self):
+        """Негативный тест: длинное название"""
+        with self.assertRaises(ValueError):
+            Movie("A" * 101, "Драма", 2020, 7.5)
+    
+    def test_invalid_genre_empty(self):
+        """Негативный тест: пустой жанр"""
+        with self.assertRaises(ValueError):
+            Movie("Фильм", "", 2020, 7.5)
+    
+    def test_invalid_year_below_min(self):
+        """Негативный тест: год меньше 1888"""
+        with self.assertRaises(ValueError):
+            Movie("Фильм", "Драма", 1887, 7.5)
+    
+    def test_invalid_year_above_max(self):
+        """Негативный тест: год больше 2026"""
+        with self.assertRaises(ValueError):
+            Movie("Фильм", "Драма", 2027, 7.5)
+    
+    def test_valid_year_boundary_min(self):
+        """Граничный тест: минимальный год (1888)"""
+        movie = Movie("Старый фильм", "Драма", 1888, 5.0)
+        self.assertEqual(movie.year, 1888)
+    
+    def test_valid_year_boundary_max(self):
+        """Граничный тест: максимальный год (2026)"""
+        movie = Movie("Новый фильм", "Драма", 2026, 5.0)
+        self.assertEqual(movie.year, 2026)
+    
+    def test_invalid_rating_below_zero(self):
+        """Негативный тест: рейтинг меньше 0"""
+        with self.assertRaises(ValueError):
+            Movie("Фильм", "Драма", 2020, -0.1)
+    
+    def test_invalid_rating_above_ten(self):
+        """Негативный тест: рейтинг больше 10"""
+        with self.assertRaises(ValueError):
+            Movie("Фильм", "Драма", 2020, 10.1)
+    
+    def test_valid_rating_boundary_min(self):
+        """Граничный тест: минимальный рейтинг (0)"""
+        movie = Movie("Плохой фильм", "Драма", 2020, 0)
+        self.assertEqual(movie.rating, 0)
+    
+    def test_valid_rating_boundary_max(self):
+        """Граничный тест: максимальный рейтинг (10)"""
+        movie = Movie("Отличный фильм", "Драма", 2020, 10)
+        self.assertEqual(movie.rating, 10)
+    
+    def test_to_dict_conversion(self):
+        """Тест преобразования в словарь"""
+        movie = Movie("Тест", "Комедия", 2000, 7.5)
+        movie_dict = movie.to_dict()
+        self.assertEqual(movie_dict["title"], "Тест")
+        self.assertEqual(movie_dict["year"], 2000)
+    
+    def test_from_dict_conversion(self):
+        """Тест создания из словаря"""
+        data = {"title": "Из словаря", "genre": "Триллер", "year": 2015, "rating": 8.2}
+        movie = Movie.from_dict(data)
+        self.assertEqual(movie.title, "Из словаря")
+        self.assertEqual(movie.rating, 8.2)
+    
+    def test_storage_save_load(self):
+        """Тест сохранения и загрузки JSON"""
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+            tmp.close()
+            storage = Storage(tmp.name)
+            movies = [Movie("Тест1", "Боевик", 2010, 7.5)]
+            storage.save_movies(movies)
+            loaded = storage.load_movies()
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].title, "Тест1")
+            os.unlink(tmp.name)
 
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
 
-# ActiveMQ
-activemq-data/
+# ===================== ЗАПУСК =====================
 
-# SageMath parsed files
-*.sage.py
+def run_tests():
+    """Запуск тестов"""
+    print("\n" + "="*60)
+    print("Запуск тестов Movie Library...")
+    print("="*60)
+    
+    # Создаём тестовый набор
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestMovieLibrary)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    print("\n" + "="*60)
+    if result.wasSuccessful():
+        print("✅ Все тесты успешно пройдены!")
+    else:
+        print(f"❌ Пройдено тестов: {result.testsRun - len(result.failures) - len(result.errors)} из {result.testsRun}")
+    print("="*60 + "\n")
+    
+    return result.wasSuccessful()
 
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+def main():
+    """Главная функция запуска приложения"""
+    # Спрашиваем, нужно ли запустить тесты
+    root_temp = tk.Tk()
+    root_temp.withdraw()
+    
+    run_tests_choice = messagebox.askyesno(
+        "Movie Library",
+        "Запустить тесты перед стартом приложения?\n\n"
+        "Рекомендуется при первом запуске для проверки работоспособности.",
+        icon="question"
+    )
+    root_temp.destroy()
+    
+    if run_tests_choice:
+        run_tests()
+    
+    # Запускаем основное приложение
+    root = tk.Tk()
+    app = MovieLibraryApp(root)
+    root.mainloop()
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
+if __name__ == "__main__":
+    main()
